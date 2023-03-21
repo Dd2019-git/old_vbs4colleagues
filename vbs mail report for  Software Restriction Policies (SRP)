@@ -1,0 +1,184 @@
+' 16:33 02.07.2015
+' 11:44 12.07.2016
+' man http://script-coding.com/forum/viewtopic.php?id=6856 - но это через классы.
+' man 2 https://social.technet.microsoft.com/Forums/ru-RU/f7eb20c3-ca78-4c3a-9ec8-d3dd320f384f/-vbs?forum=scrlangru
+
+' net man http://community.spiceworks.com/topic/256186-ip-address-and-computer-name-vbscript
+' 10:14 AM 2/19/2016 добавлена выборка из журнала событий
+' редакция 3 от 2016-mart/4  с сменой заголовка
+' 14:52 22.07.2016 добавлена дата, выборка события незапуска инсталлятора
+' поправлен формат даты
+ 
+
+
+Option Explicit
+
+Dim objEmail  'CDO объект для отправки сообщения
+Dim MessText  'Текст сообщения
+dim m_conf ' чтоб покороче код сделать
+
+dim NIC1, Nic, StrIP, CompName, i, WshNetwork, strComputer, objWMIService, colLoggedEvents, objEvent  
+
+
+
+
+' Формируем текст сообщения
+' получаем данные по сети
+Set NIC1 = GetObject("winmgmts:").InstancesOf("Win32_NetworkAdapterConfiguration")
+For Each Nic in NIC1
+   if Nic.IPEnabled then
+	StrIP = Nic.IPAddress(i)
+	Set WshNetwork = WScript.CreateObject("WScript.Network")
+	CompName= WshNetwork.Computername
+
+	' MsgBox "IP Address: "&StrIP & vbNewLine _
+ 	' & "Computer Name: "&CompName,4160,"IP Address and Computer Name"
+
+ '  wscript.quit
+
+   end if
+
+next
+
+MessText = "SRP message on " +  CompName + ", ip " + StrIP
+' MsgBox(MessText)
+
+
+
+
+' получаем данные из журнала событий
+' http://www.windowsfaq.ru/content/view/497/30/
+' http://www.windowsfaq.ru/content/view/490/70/
+' http://www.windowsfaq.ru/content/view/485/70/
+
+strComputer = "."
+Set objWMIService = GetObject("winmgmts:" _
+    & "{impersonationLevel=impersonate}!\\" & strComputer & "\root\cimv2")
+
+
+
+Set colLoggedEvents = objWMIService.ExecQuery _
+        ("Select * from Win32_NTLogEvent Where Logfile = 'Application' and (EventCode = '865' or EventCode = '1007')")
+
+
+
+' отдадочный кусок 
+For Each objEvent in colLoggedEvents
+'    Wscript.Echo "1 Category: " & objEvent.Category
+'
+'    Wscript.Echo "2 Computer Name: " & objEvent.ComputerName
+MessText = MessText + "<br>" + objEvent.ComputerName
+'    Wscript.Echo "3 Event Code: " & objEvent.EventCode
+'    Wscript.Echo "4 Message: " & objEvent.Message
+MessText = MessText + "<br>" + objEvent.Message
+'    Wscript.Echo "5 Record Number: " & objEvent.RecordNumber
+'    Wscript.Echo "6 Source Name: " & objEvent.SourceName
+
+' разное про время
+'    Wscript.Echo "7 Time Written: " & objEvent.TimeWritten
+MessText = MessText + "<br>" + "date full" + objEvent.TimeWritten
+
+' превращение даты в читаемый вид 
+MessText = MessText +  "<br>" + "date readable" + get_time(objEvent.TimeWritten)
+
+'    Wscript.Echo "8 Event Type: " & objEvent.Type
+'    Wscript.Echo "9 User: " & objEvent.User
+MessText = MessText + "<br> User - " +  objEvent.User
+' MessText = MessText + "<br>Робат например"
+
+exit for
+Next
+' конец отладочного куска
+
+
+
+
+
+
+
+Set objEmail = WScript.CreateObject("CDO.Message")  'Создаем объект CDO и получаем на него ссылку в переменную objEmail 
+
+Set m_conf = objEmail.Configuration ' вместо objEmail.Configuration.Fields.Item
+
+
+''''''''''''''''''''''''''''''''''''''''''''''''''''
+' Указание необходимых параметров объекта CDO   
+''''''''''''''''''''''''''''''''''''''''''''''''''''
+
+
+
+objEmail.From = "SRProbot@().ru"   'параметры отправителя (имя и адрес электронной почты)    
+
+objEmail.To = "org.adm.srp-report@().ru"       'адрес электронной почты получателя 
+
+
+' old objEmail.Subject = "SRP Robot v7-22 report!"       'тема сообщения   
+objEmail.Subject = "SRP Robot report! pc " + CompName         'тема сообщения   
+
+' objEmail.Textbody = MessText        'текст сообщения 
+objEmail.HTMLBody = MessText        'текст сообщения html
+
+
+
+'Отправить сообщение используя сетевую SMTP-службу (1 - используется для отправки через локальную SMTP-службу)
+m_conf("http://schemas.microsoft.com/cdo/configuration/sendusing") = 2    
+
+m_conf("http://schemas.microsoft.com/cdo/configuration/smtpserver") = "smtp.().ru"
+
+'Указание SMPT-порта на сервере 
+m_conf("http://schemas.microsoft.com/cdo/configuration/smtpserverport") = 25
+
+
+
+'Обновить конфигурацию CDO-объекта
+objEmail.Configuration.Fields.Update
+
+
+
+
+'Послать сообщение с помощью метода Send
+
+objEmail.Send
+
+
+
+'== функции и процедуры 03 - конвертация объекта "последняя смена пароля" в дату----------------------------------------------------------
+
+Function Integer8Date(ByVal objDate, ByVal lngBias)
+    ' Function to convert Integer8 (64-bit) value to a date, adjusted for
+    ' local time zone bias.
+    Dim lngAdjust, lngDate, lngHigh, lngLow
+    lngAdjust = lngBias
+    lngHigh = objDate.HighPart
+    lngLow = objdate.LowPart
+    ' Account for error in IADsLargeInteger property methods.
+    If (lngLow < 0) Then
+        lngHigh = lngHigh + 1
+    End If
+    If (lngHigh = 0) And (lngLow = 0) Then
+        lngAdjust = 0
+    End If
+    lngDate = #1/1/1601# + (((lngHigh * (2 ^ 32)) _
+        + lngLow) / 600000000 - lngAdjust) / 1440
+    ' Trap error if lngDate is ridiculously huge.
+    On Error Resume Next
+    Integer8Date = CDate(lngDate)
+    If (Err.Number <> 0) Then
+        On Error GoTo 0
+        Integer8Date = #1/1/1601#
+    End If
+    On Error GoTo 0
+End Function
+
+'*****************sub convert time*************************************
+sub get_time(strkey)            
+strtimewritten = objevent.TimeWritten
+        dtmTimeWritten = CDate(Mid(strTimeWritten, 5, 2) & "/" & _
+        Mid(strTimeWritten, 7, 2) & "/" & Left(strTimeWritten, 4) _
+        & " " & Mid (strTimeWritten, 9, 2) & ":" & _
+        Mid(strTimeWritten, 11, 2) & ":" & Mid(strTimeWritten, 13, 2))
+        dtmDate = FormatDateTime(dtmTimeWritten, vbShortDate)
+        dtmTime = FormatDateTime(dtmTimeWritten, vbLongTime)
+ 
+
+end sub 
